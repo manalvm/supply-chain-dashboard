@@ -14,7 +14,7 @@ const (
 	Host     = "localhost"
 	Port     = 5432
 	User     = "postgres"
-	Password = "x"
+	Password = "m7mdndgamer"
 	DBName   = "pern_todo"
 )
 

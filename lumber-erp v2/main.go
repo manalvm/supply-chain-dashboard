@@ -19,11 +19,11 @@ func main() {
 	routes.SetupRoutes()
 
 	// Server configuration
-	port := ":3000"
-	
+	port := ":5000"
+
 	// Print startup banner
 	printStartupBanner(port)
-	
+
 	// Start server
 	fmt.Println("\n🎯 Server is ready to accept connections!")
 	log.Fatal(http.ListenAndServe(port, nil))
@@ -35,10 +35,10 @@ func printStartupBanner(port string) {
 	fmt.Println(strings.Repeat("=", 70))
 	fmt.Printf("🚀 Server: http://localhost%s\n", port)
 	fmt.Println(strings.Repeat("=", 70))
-	
+
 	fmt.Println("\n📋 API ENDPOINTS BY CATEGORY:")
 	fmt.Println(strings.Repeat("-", 70))
-	
+
 	endpoints := []struct {
 		category string
 		routes   []string
@@ -153,9 +153,9 @@ func printStartupBanner(port string) {
 
 	fmt.Println("\n" + strings.Repeat("=", 70))
 	fmt.Println("💡 USAGE EXAMPLES:")
-	fmt.Println("  curl http://localhost:3000/api/users")
-	fmt.Println("  curl -X POST http://localhost:3000/api/users -d '{...}'")
-	fmt.Println("  curl -X PUT http://localhost:3000/api/user?id=1 -d '{...}'")
-	fmt.Println("  curl -X DELETE http://localhost:3000/api/user?id=1")
+	fmt.Println("  curl http://localhost:5000/api/users")
+	fmt.Println("  curl -X POST http://localhost:5000/api/users -d '{...}'")
+	fmt.Println("  curl -X PUT http://localhost:5000/api/user?id=1 -d '{...}'")
+	fmt.Println("  curl -X DELETE http://localhost:5000/api/user?id=1")
 	fmt.Println(strings.Repeat("=", 70))
 }

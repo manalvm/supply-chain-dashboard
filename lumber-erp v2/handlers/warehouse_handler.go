@@ -2,11 +2,11 @@ package handlers
 
 import (
 	"encoding/json"
-	"net/http"
-
+	"fmt"
 	"lumber-erp-api/config"
 	"lumber-erp-api/models"
 	"lumber-erp-api/utils"
+	"net/http"
 )
 
 // ==================== WAREHOUSES ====================
@@ -72,17 +72,44 @@ func DeleteWarehouse(w http.ResponseWriter, r *http.Request) {
 // ==================== PRODUCT TYPES ====================
 func CreateProductType(w http.ResponseWriter, r *http.Request) {
 	utils.EnableCORS(&w)
-	var pt models.ProductType
-	json.NewDecoder(r.Body).Decode(&pt)
+
+	// Receive data with frontend field names
+	var requestData struct {
+		ProductName   string  `json:"product_name"`
+		Category      string  `json:"category"`
+		UnitPrice     float64 `json:"unit_price"`
+		UnitOfMeasure string  `json:"unit_of_measure"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Store price in Description field as string
+	priceStr := fmt.Sprintf("%.2f", requestData.UnitPrice)
 
 	query := `INSERT INTO ProductType (Name, Description, Grade, UnitOfMeasure)
               VALUES ($1, $2, $3, $4) RETURNING ProductTypeID`
-	err := config.DB.QueryRow(query, pt.Name, pt.Description, pt.Grade, pt.UnitOfMeasure).Scan(&pt.ProductTypeID)
+
+	var productTypeID int
+	err := config.DB.QueryRow(query, requestData.ProductName, priceStr,
+		requestData.Category, requestData.UnitOfMeasure).Scan(&productTypeID)
 	if err != nil {
 		utils.RespondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	utils.RespondJSON(w, http.StatusCreated, pt)
+
+	// Return with frontend field names
+	response := map[string]interface{}{
+		"product_type_id": productTypeID,
+		"product_name":    requestData.ProductName,
+		"category":        requestData.Category,
+		"unit_price":      requestData.UnitPrice,
+		"unit_of_measure": requestData.UnitOfMeasure,
+	}
+
+	utils.RespondJSON(w, http.StatusCreated, response)
 }
 
 func GetProductTypes(w http.ResponseWriter, r *http.Request) {
@@ -95,24 +122,59 @@ func GetProductTypes(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	pts := []models.ProductType{}
+	var productTypes []map[string]interface{}
 	for rows.Next() {
-		var p models.ProductType
-		rows.Scan(&p.ProductTypeID, &p.Name, &p.Description, &p.Grade, &p.UnitOfMeasure)
-		pts = append(pts, p)
+		var id int
+		var name, description, grade, unitOfMeasure string
+
+		if err := rows.Scan(&id, &name, &description, &grade, &unitOfMeasure); err != nil {
+			continue
+		}
+
+		// Convert Description (stored price) to float
+		var unitPrice float64
+		if description != "" {
+			fmt.Sscanf(description, "%f", &unitPrice)
+		}
+
+		// Map database fields to frontend field names
+		pt := map[string]interface{}{
+			"product_type_id": id,
+			"product_name":    name,
+			"category":        grade,
+			"unit_price":      unitPrice,
+			"unit_of_measure": unitOfMeasure,
+		}
+		productTypes = append(productTypes, pt)
 	}
-	utils.RespondJSON(w, http.StatusOK, pts)
+
+	utils.RespondJSON(w, http.StatusOK, productTypes)
 }
 
 func UpdateProductType(w http.ResponseWriter, r *http.Request) {
 	utils.EnableCORS(&w)
 	id := r.URL.Query().Get("id")
-	var pt models.ProductType
-	json.NewDecoder(r.Body).Decode(&pt)
+
+	// Receive data with frontend field names
+	var requestData struct {
+		ProductName   string  `json:"product_name"`
+		Category      string  `json:"category"`
+		UnitPrice     float64 `json:"unit_price"`
+		UnitOfMeasure string  `json:"unit_of_measure"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Store price in Description field as string
+	priceStr := fmt.Sprintf("%.2f", requestData.UnitPrice)
 
 	query := `UPDATE ProductType SET Name = $2, Description = $3, Grade = $4, UnitOfMeasure = $5 
               WHERE ProductTypeID = $1`
-	_, err := config.DB.Exec(query, id, pt.Name, pt.Description, pt.Grade, pt.UnitOfMeasure)
+	_, err := config.DB.Exec(query, id, requestData.ProductName, priceStr,
+		requestData.Category, requestData.UnitOfMeasure)
 	if err != nil {
 		utils.RespondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -134,18 +196,42 @@ func DeleteProductType(w http.ResponseWriter, r *http.Request) {
 // ==================== STOCK ITEMS ====================
 func CreateStockItem(w http.ResponseWriter, r *http.Request) {
 	utils.EnableCORS(&w)
-	var si models.StockItem
-	json.NewDecoder(r.Body).Decode(&si)
+	
+	// Receive data with frontend field names
+	var requestData struct {
+		WarehouseID      int     `json:"warehouse_id"`
+		ProductTypeID    int     `json:"product_type_id"`
+		QuantityInStock  float64 `json:"quantity_in_stock"`
+		ShelfLocation    string  `json:"shelf_location"`
+		LastRestocked    string  `json:"last_restocked"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
 
 	query := `INSERT INTO StockItem (ProductTypeID, WarehouseID, BatchID, Quantity, ShelfLocation)
-              VALUES ($1, $2, $3, $4, $5) RETURNING StockID`
-	err := config.DB.QueryRow(query, si.ProductTypeID, si.WarehouseID, si.BatchID,
-		si.Quantity, si.ShelfLocation).Scan(&si.StockID)
+              VALUES ($1, $2, NULL, $3, $4) RETURNING StockID`
+	
+	var stockID int
+	err := config.DB.QueryRow(query, requestData.ProductTypeID, requestData.WarehouseID,
+		requestData.QuantityInStock, requestData.ShelfLocation).Scan(&stockID)
 	if err != nil {
 		utils.RespondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	utils.RespondJSON(w, http.StatusCreated, si)
+	
+	response := map[string]interface{}{
+		"stock_id":          stockID,
+		"warehouse_id":      requestData.WarehouseID,
+		"product_type_id":   requestData.ProductTypeID,
+		"quantity_in_stock": requestData.QuantityInStock,
+		"shelf_location":    requestData.ShelfLocation,
+		"last_restocked":    requestData.LastRestocked,
+	}
+	
+	utils.RespondJSON(w, http.StatusCreated, response)
 }
 
 func GetStockItems(w http.ResponseWriter, r *http.Request) {
@@ -158,24 +244,53 @@ func GetStockItems(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	items := []models.StockItem{}
+	var items []map[string]interface{}
 	for rows.Next() {
-		var s models.StockItem
-		rows.Scan(&s.StockID, &s.ProductTypeID, &s.WarehouseID, &s.BatchID, &s.Quantity, &s.ShelfLocation)
-		items = append(items, s)
+		var stockID, productTypeID, warehouseID int
+		var batchID *int
+		var quantity float64
+		var shelfLocation string
+		
+		if err := rows.Scan(&stockID, &productTypeID, &warehouseID, &batchID, &quantity, &shelfLocation); err != nil {
+			continue
+		}
+		
+		item := map[string]interface{}{
+			"stock_id":          stockID,
+			"warehouse_id":      warehouseID,
+			"product_type_id":   productTypeID,
+			"batch_id":          batchID,
+			"quantity_in_stock": quantity,
+			"shelf_location":    shelfLocation,
+			"last_restocked":    nil,
+		}
+		items = append(items, item)
 	}
+	
 	utils.RespondJSON(w, http.StatusOK, items)
 }
 
 func UpdateStockItem(w http.ResponseWriter, r *http.Request) {
 	utils.EnableCORS(&w)
 	id := r.URL.Query().Get("id")
-	var si models.StockItem
-	json.NewDecoder(r.Body).Decode(&si)
+	
+	var requestData struct {
+		WarehouseID      int     `json:"warehouse_id"`
+		ProductTypeID    int     `json:"product_type_id"`
+		QuantityInStock  float64 `json:"quantity_in_stock"`
+		ShelfLocation    string  `json:"shelf_location"`
+		LastRestocked    string  `json:"last_restocked"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
 
-	query := `UPDATE StockItem SET ProductTypeID = $2, WarehouseID = $3, BatchID = $4,
-              Quantity = $5, ShelfLocation = $6 WHERE StockID = $1`
-	_, err := config.DB.Exec(query, id, si.ProductTypeID, si.WarehouseID, si.BatchID, si.Quantity, si.ShelfLocation)
+	query := `UPDATE StockItem SET ProductTypeID = $2, WarehouseID = $3, BatchID = NULL,
+              Quantity = $4, ShelfLocation = $5 WHERE StockID = $1`
+	_, err := config.DB.Exec(query, id, requestData.ProductTypeID, requestData.WarehouseID, 
+		requestData.QuantityInStock, requestData.ShelfLocation)
 	if err != nil {
 		utils.RespondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -197,17 +312,45 @@ func DeleteStockItem(w http.ResponseWriter, r *http.Request) {
 // ==================== STOCK ALERTS ====================
 func CreateStockAlert(w http.ResponseWriter, r *http.Request) {
 	utils.EnableCORS(&w)
-	var sa models.StockAlert
-	json.NewDecoder(r.Body).Decode(&sa)
+	
+	// Receive data with frontend field names
+	var requestData struct {
+		StockID       int    `json:"stock_id"`
+		AlertType     string `json:"alert_type"`
+		TriggeredDate string `json:"triggered_date"`
+		Resolved      bool   `json:"resolved"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Map resolved boolean to status string
+	status := "Active"
+	if requestData.Resolved {
+		status = "Resolved"
+	}
 
 	query := `INSERT INTO StockAlert (StockID, WarehouseID, AlertType, Status)
-              VALUES ($1, $2, $3, $4) RETURNING AlertID`
-	err := config.DB.QueryRow(query, sa.StockID, sa.WarehouseID, sa.AlertType, sa.Status).Scan(&sa.AlertID)
+              VALUES ($1, NULL, $2, $3) RETURNING AlertID`
+	
+	var alertID int
+	err := config.DB.QueryRow(query, requestData.StockID, requestData.AlertType, status).Scan(&alertID)
 	if err != nil {
 		utils.RespondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	utils.RespondJSON(w, http.StatusCreated, sa)
+	
+	response := map[string]interface{}{
+		"alert_id":       alertID,
+		"stock_id":       requestData.StockID,
+		"alert_type":     requestData.AlertType,
+		"triggered_date": requestData.TriggeredDate,
+		"resolved":       requestData.Resolved,
+	}
+	
+	utils.RespondJSON(w, http.StatusCreated, response)
 }
 
 func GetStockAlerts(w http.ResponseWriter, r *http.Request) {
@@ -220,23 +363,59 @@ func GetStockAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	alerts := []models.StockAlert{}
+	alerts := make([]map[string]interface{}, 0) // Initialize empty array
+	
 	for rows.Next() {
-		var s models.StockAlert
-		rows.Scan(&s.AlertID, &s.StockID, &s.WarehouseID, &s.AlertType, &s.CreatedAt, &s.Status)
-		alerts = append(alerts, s)
+		var alertID, stockID int
+		var warehouseID *int
+		var alertType, createdAt, status string
+		
+		if err := rows.Scan(&alertID, &stockID, &warehouseID, &alertType, &createdAt, &status); err != nil {
+			continue
+		}
+		
+		// Map status string to resolved boolean
+		resolved := status == "Resolved"
+		
+		alert := map[string]interface{}{
+			"alert_id":       alertID,
+			"stock_id":       stockID,
+			"warehouse_id":   warehouseID,
+			"alert_type":     alertType,
+			"triggered_date": createdAt,
+			"resolved":       resolved,
+			"status":         status,
+		}
+		alerts = append(alerts, alert)
 	}
+	
 	utils.RespondJSON(w, http.StatusOK, alerts)
 }
 
 func UpdateStockAlert(w http.ResponseWriter, r *http.Request) {
 	utils.EnableCORS(&w)
 	id := r.URL.Query().Get("id")
-	var sa models.StockAlert
-	json.NewDecoder(r.Body).Decode(&sa)
+	
+	var requestData struct {
+		StockID       int    `json:"stock_id"`
+		AlertType     string `json:"alert_type"`
+		TriggeredDate string `json:"triggered_date"`
+		Resolved      bool   `json:"resolved"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
 
-	query := `UPDATE StockAlert SET StockID = $2, WarehouseID = $3, AlertType = $4, Status = $5 WHERE AlertID = $1`
-	_, err := config.DB.Exec(query, id, sa.StockID, sa.WarehouseID, sa.AlertType, sa.Status)
+	// Map resolved boolean to status string
+	status := "Active"
+	if requestData.Resolved {
+		status = "Resolved"
+	}
+
+	query := `UPDATE StockAlert SET StockID = $2, WarehouseID = NULL, AlertType = $3, Status = $4 WHERE AlertID = $1`
+	_, err := config.DB.Exec(query, id, requestData.StockID, requestData.AlertType, status)
 	if err != nil {
 		utils.RespondError(w, http.StatusInternalServerError, err.Error())
 		return
@@ -254,22 +433,45 @@ func DeleteStockAlert(w http.ResponseWriter, r *http.Request) {
 	}
 	utils.RespondSuccess(w, "StockAlert deleted successfully")
 }
-
 // ==================== INVENTORY TRANSACTIONS ====================
 func CreateInventoryTransaction(w http.ResponseWriter, r *http.Request) {
 	utils.EnableCORS(&w)
-	var it models.InventoryTransaction
-	json.NewDecoder(r.Body).Decode(&it)
+	
+	// Receive data with frontend field names
+	var requestData struct {
+		StockID         int     `json:"stock_id"`
+		TransactionType string  `json:"transaction_type"`
+		Quantity        float64 `json:"quantity"`
+		TransactionDate string  `json:"transaction_date"`
+		ReferenceID     string  `json:"reference_id"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
 
 	query := `INSERT INTO InventoryTransaction (EmployeeID, StockID, WarehouseID, TransactionType, Quantity, Remarks)
-              VALUES ($1, $2, $3, $4, $5, $6) RETURNING TransactionID`
-	err := config.DB.QueryRow(query, it.EmployeeID, it.StockID, it.WarehouseID,
-		it.TransactionType, it.Quantity, it.Remarks).Scan(&it.TransactionID)
+              VALUES (NULL, $1, NULL, $2, $3, $4) RETURNING TransactionID`
+	
+	var transactionID int
+	err := config.DB.QueryRow(query, requestData.StockID, requestData.TransactionType,
+		requestData.Quantity, requestData.ReferenceID).Scan(&transactionID)
 	if err != nil {
 		utils.RespondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	utils.RespondJSON(w, http.StatusCreated, it)
+	
+	response := map[string]interface{}{
+		"transaction_id":   transactionID,
+		"stock_id":         requestData.StockID,
+		"transaction_type": requestData.TransactionType,
+		"quantity":         requestData.Quantity,
+		"transaction_date": requestData.TransactionDate,
+		"reference_id":     requestData.ReferenceID,
+	}
+	
+	utils.RespondJSON(w, http.StatusCreated, response)
 }
 
 func GetInventoryTransactions(w http.ResponseWriter, r *http.Request) {
@@ -282,26 +484,56 @@ func GetInventoryTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rows.Close()
 
-	transactions := []models.InventoryTransaction{}
+	transactions := make([]map[string]interface{}, 0) // Initialize empty array
+	
 	for rows.Next() {
-		var i models.InventoryTransaction
-		rows.Scan(&i.TransactionID, &i.EmployeeID, &i.StockID, &i.WarehouseID,
-			&i.TransactionType, &i.Quantity, &i.TransactionDate, &i.Remarks)
-		transactions = append(transactions, i)
+		var transactionID, stockID int
+		var employeeID, warehouseID *int
+		var transactionType, transactionDate, remarks string
+		var quantity float64
+		
+		if err := rows.Scan(&transactionID, &employeeID, &stockID, &warehouseID,
+			&transactionType, &quantity, &transactionDate, &remarks); err != nil {
+			continue
+		}
+		
+		transaction := map[string]interface{}{
+			"transaction_id":   transactionID,
+			"employee_id":      employeeID,
+			"stock_id":         stockID,
+			"warehouse_id":     warehouseID,
+			"transaction_type": transactionType,
+			"quantity":         quantity,
+			"transaction_date": transactionDate,
+			"reference_id":     remarks,
+		}
+		transactions = append(transactions, transaction)
 	}
+	
 	utils.RespondJSON(w, http.StatusOK, transactions)
 }
 
 func UpdateInventoryTransaction(w http.ResponseWriter, r *http.Request) {
 	utils.EnableCORS(&w)
 	id := r.URL.Query().Get("id")
-	var it models.InventoryTransaction
-	json.NewDecoder(r.Body).Decode(&it)
+	
+	var requestData struct {
+		StockID         int     `json:"stock_id"`
+		TransactionType string  `json:"transaction_type"`
+		Quantity        float64 `json:"quantity"`
+		TransactionDate string  `json:"transaction_date"`
+		ReferenceID     string  `json:"reference_id"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&requestData); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
 
-	query := `UPDATE InventoryTransaction SET EmployeeID = $2, StockID = $3, WarehouseID = $4,
-              TransactionType = $5, Quantity = $6, Remarks = $7 WHERE TransactionID = $1`
-	_, err := config.DB.Exec(query, id, it.EmployeeID, it.StockID, it.WarehouseID,
-		it.TransactionType, it.Quantity, it.Remarks)
+	query := `UPDATE InventoryTransaction SET EmployeeID = NULL, StockID = $2, WarehouseID = NULL,
+              TransactionType = $3, Quantity = $4, Remarks = $5 WHERE TransactionID = $1`
+	_, err := config.DB.Exec(query, id, requestData.StockID, requestData.TransactionType,
+		requestData.Quantity, requestData.ReferenceID)
 	if err != nil {
 		utils.RespondError(w, http.StatusInternalServerError, err.Error())
 		return

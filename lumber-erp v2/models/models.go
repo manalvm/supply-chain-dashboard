@@ -201,16 +201,17 @@ type WasteRecord struct {
 // ✅ QUALITY CONTROL
 // ============================================
 
+
 type QualityInspection struct {
-	InspectionID    int     `json:"inspection_id"`
-	EmployeeID      int     `json:"employee_id"`
-	ProcessingID    int     `json:"processing_id"`
-	POItemID        int     `json:"po_item_id"`
-	BatchID         int     `json:"batch_id"`
-	Result          string  `json:"result"`
-	MoistureLevel   float64 `json:"moisture_level"`
-	CertificationID string  `json:"certification_id"`
-	Date            string  `json:"date"`
+	InspectionID    int      `json:"inspection_id"`
+	EmployeeID      int      `json:"employee_id"`
+	ProcessingID    *int     `json:"processing_id"`   // pointer allows NULL
+	POItemID        *int     `json:"po_item_id"`      // pointer allows NULL
+	BatchID         int      `json:"batch_id"`
+	Result          string   `json:"result"`
+	MoistureLevel   float64  `json:"moisture_level"`
+	CertificationID string   `json:"certification_id"`
+	Date            string   `json:"date"`
 }
 
 // ============================================
